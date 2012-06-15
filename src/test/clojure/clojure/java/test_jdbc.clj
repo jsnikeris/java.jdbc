@@ -57,35 +57,49 @@
 
 ;; database connections used for testing:
 
-(def mysql-db {:subprotocol "mysql"
-               :subname "//127.0.0.1:3306/clojure_test"
-               :user "clojure_test"
-               :password "clojure_test"})
+(def mysql-db
+  (sql/map->Driver
+   {:subprotocol "mysql"
+    :subname "//127.0.0.1:3306/clojure_test"
+    :user "clojure_test"
+    :password "clojure_test"}))
 
-(def derby-db {:subprotocol "derby"
-               :subname "clojure_test_derby"
-               :create true})
+(def derby-db
+  (sql/map->Driver
+   {:subprotocol "derby"
+    :subname "clojure_test_derby"
+    :create true}))
 
-(def hsqldb-db {:subprotocol "hsqldb"
-                :subname "clojure_test_hsqldb"})
+(def hsqldb-db
+  (sql/map->Driver
+   {:subprotocol "hsqldb"
+    :subname "clojure_test_hsqldb"}))
 
-(def sqlite-db {:subprotocol "sqlite"
-                :subname "clojure_test_sqlite"})
+(def sqlite-db
+  (sql/map->Driver
+   {:subprotocol "sqlite"
+    :subname "clojure_test_sqlite"}))
 
-(def postgres-db {:subprotocol "postgresql"
-                  :subname "clojure_test"
-                  :user "clojure_test"
-                  :password "clojure_test"})
+(def postgres-db
+  (sql/map->Driver
+   {:subprotocol "postgresql"
+    :subname "clojure_test"
+    :user "clojure_test"
+    :password "clojure_test"}))
 
-(def mssql-db {:subprotocol "sqlserver"
-               :subname (str "//" mssql-host ":" mssql-port ";DATABASENAME=" mssql-dbname)
-               :user mssql-user
-               :password mssql-pass})
+(def mssql-db
+  (sql/map->Driver
+   {:subprotocol "sqlserver"
+    :subname (str "//" mssql-host ":" mssql-port ";DATABASENAME=" mssql-dbname)
+    :user mssql-user
+    :password mssql-pass}))
 
-(def jtds-db {:subprotocol "jtds:sqlserver"
-              :subname (str "//" jtds-host ":" jtds-port "/" jtds-dbname)
-              :user jtds-user
-              :password jtds-pass})
+(def jtds-db
+  (sql/map->Driver
+   {:subprotocol "jtds:sqlserver"
+    :subname (str "//" jtds-host ":" jtds-port "/" jtds-dbname)
+    :user jtds-user
+    :password jtds-pass}))
 
 ;; To test against the stringified DB connection settings:
 (def mysql-str-db

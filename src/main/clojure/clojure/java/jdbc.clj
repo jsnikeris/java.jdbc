@@ -36,7 +36,8 @@ are the parameter values to be substituted. In general, operations return
 the number of rows affected, except for a single record insert where any
 generated keys are returned (as a map)." }
   clojure.java.jdbc
-  (:import [java.net URI]
+  (:import [clojure.lang IPersistentMap]
+           [java.net URI]
            [java.sql BatchUpdateException DriverManager PreparedStatement ResultSet SQLException Statement]
            [java.util Hashtable Map Properties]
            [javax.naming InitialContext Name]
@@ -147,50 +148,64 @@ generated keys are returned (as a map)." }
     (.substring spec 5)
     spec))
 
-(defn- get-connection
-  "Creates a connection to a database. db-spec is a map containing connection
-   parameters - see with-connection for full details."
-  [{:keys [factory
-           connection-uri
-           classname subprotocol subname
-           datasource username password
-           name environment]
-    :as db-spec}]
-  (cond
-    (instance? URI db-spec)
-    (get-connection (parse-properties-uri db-spec))
-    
-    (string? db-spec)
-    (get-connection (URI. (strip-jdbc db-spec)))
-    
-    factory
-    (factory (dissoc db-spec :factory))
-    
-    connection-uri
-    (DriverManager/getConnection connection-uri)
-    
-    (and subprotocol subname)
+(defprotocol DatabaseSpecifier
+  (get-connection [db-spec]))
+
+;; :subprotocol (required) a String, the jdbc subprotocol
+;; :subname     (required) a String, the jdbc subname
+;; :classname   (optional) a String, the jdbc driver class name
+;; (others)     (optional) passed to the driver as properties.
+(defrecord Driver [subprotocol subname]
+  DatabaseSpecifier
+  (get-connection [this]
     (let [url (format "jdbc:%s:%s" subprotocol subname)
-          etc (dissoc db-spec :classname :subprotocol :subname)
-          classname (or classname (classnames subprotocol))]
+          classname (or (:classname this) (classnames subprotocol))
+          etc (dissoc this :classname :subprotocol :subname)]
       (clojure.lang.RT/loadClassForName classname)
-      (DriverManager/getConnection url (as-properties etc)))
-    
-    (and datasource username password)
-    (.getConnection ^DataSource datasource ^String username ^String password)
-    
-    datasource
-    (.getConnection ^DataSource datasource)
-    
-    name
-    (let [env (and environment (Hashtable. ^Map environment))
-          context (InitialContext. env)
-          ^DataSource datasource (.lookup context ^String name)]
-      (.getConnection datasource))
-    
-    :else
-    (let [^String msg (format "db-spec %s is missing a required parameter" db-spec)]
-      (throw (IllegalArgumentException. msg)))))
+      (DriverManager/getConnection url (as-properties etc)))))
+
+;; :datasource  (required) a javax.sql.DataSource
+;; :username    (optional) a String
+;; :password    (optional) a String, required if :username is supplied
+(defrecord DataSourceSpec [datasource]
+  DatabaseSpecifier
+  (get-connection [{:keys [username password]}]
+    (if (and username password)
+      (.getConnection datasource username password)
+      (.getConnection datasource))))
+
+;; :name        (required) a String or javax.naming.Name
+;; :environment (optional) a java.util.Map
+(defrecord JNDI [name]
+  DatabaseSpecifier
+  (get-connection [{:keys [environment]}]
+    (let [env (and environment (Hashtable. environment))]
+      (.. (InitialContext. env) (lookup name) (getConnection)))))
+
+(extend-protocol DatabaseSpecifier
+  ;; Parsed JDBC connection string - see below
+  URI
+  (get-connection [uri]
+    (get-connection (map->Driver (parse-properties-uri uri))))
+
+  ;; subprotocol://user:password@host:post/subname
+  ;; An optional prefix of jdbc: is allowed.
+  String
+  (get-connection [s] (get-connection (URI. (strip-jdbc s))))
+
+  ;; provided for backwards compatability
+  IPersistentMap
+  (get-connection [{:keys [subprotocol subname factory datasource name]
+                    :as db-spec}]
+    (cond
+     factory (factory (dissoc db-spec :factory))
+     (and subprotocol subname) (get-connection (map->Driver db-spec))
+     datasource (get-connection (map->DataSourceSpec db-spec))
+     name (get-connection (map->JNDI db-spec))
+     :else
+     (throw
+      (IllegalArgumentException.
+       (format "DatabaseSpecifier %s is missing a required parameter" db-spec))))))
 
 (defn- make-name-unique
   "Given a collection of column names and a new column name,
@@ -303,38 +318,7 @@ generated keys are returned (as a map)." }
 
 (defmacro with-connection
   "Evaluates body in the context of a new connection to a database then
-  closes the connection. db-spec is a map containing values for one of the
-  following parameter sets:
-
-  Factory:
-    :factory     (required) a function of one argument, a map of params
-    (others)     (optional) passed to the factory function in a map
-
-  DriverManager:
-    :subprotocol (required) a String, the jdbc subprotocol
-    :subname     (required) a String, the jdbc subname
-    :classname   (optional) a String, the jdbc driver class name
-    (others)     (optional) passed to the driver as properties.
-
-  DataSource:
-    :datasource  (required) a javax.sql.DataSource
-    :username    (optional) a String
-    :password    (optional) a String, required if :username is supplied
-
-  JNDI:
-    :name        (required) a String or javax.naming.Name
-    :environment (optional) a java.util.Map
-
-  Raw:
-    :connection-uri (required) a String
-                 Passed directly to DriverManager/getConnection
-
-  URI:
-    Parsed JDBC connection string - see below
-  
-  String:
-    subprotocol://user:password@host:post/subname
-                 An optional prefix of jdbc: is allowed."
+   closes the connection. db-spec must implement the DatabaseSpecifier protocol"
   [db-spec & body]
   `(with-connection* ~db-spec (fn [] ~@body)))
 
